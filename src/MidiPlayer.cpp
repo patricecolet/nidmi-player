@@ -6,7 +6,7 @@
 
 static inline int64_t nowUs() { return esp_timer_get_time(); }
 
-MidiPlayer::MidiPlayer(nidmi::RtpMidiService& rtp) : rtp_(rtp) {}
+MidiPlayer::MidiPlayer(nidmi_core::RtpMidiService& rtp) : rtp_(rtp) {}
 
 // ---------------------------------------------------------------------------
 // Chargement

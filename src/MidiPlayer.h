@@ -14,7 +14,7 @@ class MidiPlayer {
 public:
     enum class State : uint8_t { STOPPED, PLAYING, PAUSED };
 
-    explicit MidiPlayer(nidmi::RtpMidiService& rtp);
+    explicit MidiPlayer(nidmi_core::RtpMidiService& rtp);
 
     bool load(const uint8_t* data, size_t length);
     bool loadFile(const char* path);
@@ -39,7 +39,7 @@ public:
     int64_t     durationUs()  const { return score_.totalTimeUs; }
 
 private:
-    nidmi::RtpMidiService& rtp_;
+    nidmi_core::RtpMidiService& rtp_;
     SmfParser::Result      score_;
 
     State  state_  = State::STOPPED;

@@ -8,7 +8,7 @@
 
 class EspSequencerAdapter {
 public:
-    explicit EspSequencerAdapter(nidmi::RtpMidiService& rtp)
+    explicit EspSequencerAdapter(nidmi_core::RtpMidiService& rtp)
         : rtp_(rtp) {}
 
     // --- Transport ---
@@ -81,7 +81,7 @@ public:
 private:
     SequencerEngine        engine_;
     SequencerClockDriver   clock_;
-    nidmi::RtpMidiService& rtp_;
+    nidmi_core::RtpMidiService& rtp_;
 
     void dispatchEvents() {
         const auto& q = engine_.events();

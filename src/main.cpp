@@ -27,9 +27,9 @@ static constexpr const char* kRtpName  = "nidmi-player";
 static constexpr uint16_t kOscLocalPort = 4000;
 static constexpr uint16_t kOscDestPort  = 9000;
 
-static nidmi::RtpMidiService g_rtp;
-static nidmi::OscUdpService  g_osc;
-static nidmi::MidiOscRouter  g_router(g_rtp, g_osc);
+static nidmi_core::RtpMidiService g_rtp;
+static nidmi_core::OscUdpService  g_osc;
+static nidmi_core::MidiOscRouter  g_router(g_rtp, g_osc);
 static MidiPlayer            g_player(g_rtp);
 static EspSequencerAdapter   g_seq(g_rtp);
 
@@ -197,10 +197,10 @@ void setup() {
     Serial.begin(115200);
     delay(200);
     Serial.print("[nidmi-player] nidmi-core ");
-    Serial.println(nidmi::version());
+    Serial.println(nidmi_core::version());
 
     // --- WiFi AP ---
-    if (!nidmi::netBeginSoftAp(kApSsid, kApPass, kMdnsHost)) {
+    if (!nidmi_core::netBeginSoftAp(kApSsid, kApPass, kMdnsHost)) {
         Serial.println("[nidmi-player] ERREUR: WiFi AP / mDNS");
         return;
     }
@@ -220,7 +220,7 @@ void setup() {
         return;
     }
     g_osc.setBroadcast(true);
-    g_osc.setInterface(nidmi::OscNetInterface::AP);
+    g_osc.setInterface(nidmi_core::OscNetInterface::AP);
     g_osc.setTarget("192.168.4.255", kOscDestPort);
     g_router.setAddressPrefix("/nidmi");
     g_router.wire();
