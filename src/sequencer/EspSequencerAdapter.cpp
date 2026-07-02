@@ -15,19 +15,23 @@ void EspSequencerAdapter::printPattern() const {
         p.timing.swingEnabled ? "on" : "off",
         p.timing.swingPositionPercent);
 
-    for (uint8_t r = 0; r < p.numRows; ++r) {
-        const auto& row = p.rows[r];
-        Serial.printf("  R%u ch%u : ", r, row.channel + 1);
-        for (uint8_t s = 0; s < p.numSteps; ++s) {
-            const auto& sd = row.steps[s];
-            if (!sd.enabled)
-                Serial.print('.');
-            else if (sd.subPatIdx != kNoSubPattern)
-                Serial.print('S');
-            else
-                Serial.print('X');
+    for (uint8_t b = 0; b < p.numBars; ++b) {
+        if (p.numBars > 1)
+            Serial.printf("  -- mesure %u --\n", b);
+        for (uint8_t r = 0; r < p.numRows; ++r) {
+            const auto& row = p.rows[r];
+            Serial.printf("  R%u ch%u : ", r, row.channel + 1);
+            for (uint8_t s = 0; s < row.numSteps; ++s) {
+                const auto& sd = row.step(b, s);
+                if (!sd.enabled)
+                    Serial.print('.');
+                else if (sd.subPatIdx != kNoSubPattern)
+                    Serial.print('S');
+                else
+                    Serial.print('X');
+            }
+            Serial.printf("  [%u]\n", engine_.currentStep());
         }
-        Serial.printf("  [%u]\n", engine_.currentStep());
     }
 
     for (uint8_t i = 0; i < kMaxSubPatterns; ++i) {

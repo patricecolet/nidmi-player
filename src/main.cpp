@@ -15,8 +15,12 @@
 #include <nidmi_core/RtpMidiService.h>
 #include <nidmi_core/Version.h>
 
+#include <cstring>
+
 #include "MidiPlayer.h"
+#include "app/PlayerCommandHandler.h"
 #include "app/SequencerCommandHandler.h"
+#include "app/SerialLineReader.h"
 #include "sequencer/EspSequencerAdapter.h"
 
 static constexpr const char* kApSsid   = "nidmi-player";
@@ -32,6 +36,7 @@ static nidmi_core::OscUdpService  g_osc;
 static nidmi_core::MidiOscRouter  g_router(g_rtp, g_osc);
 static MidiPlayer            g_player(g_rtp);
 static EspSequencerAdapter   g_seq(g_rtp);
+static SerialLineReader      g_lineReader;
 
 static String g_currentFile;
 
@@ -126,20 +131,23 @@ static String findFirstMidi() {
 static void showHelp() {
     Serial.println();
     Serial.println("=== nidmi-player ===");
-    Serial.println(" -- Lecteur MIDI --");
+    Serial.println("Chaque commande se termine par Entree.");
+    Serial.println(" -- Raccourcis (1 caractere) --");
     Serial.println("  p      play / reprendre");
     Serial.println("  s      stop");
     Serial.println("  ESPACE toggle play/pause");
     Serial.println("  l      toggle boucle");
     Serial.println("  i      info");
     Serial.println("  f      lister fichiers");
-    Serial.println(" -- Sequenceur XOX --");
     Serial.println("  1      play/pause sequenceur");
     Serial.println("  2      stop sequenceur");
     Serial.println("  3      toggle pas courant (rangee 0)");
     Serial.println("  t      afficher pattern");
-    Serial.println(" -- General --");
     Serial.println("  h      aide");
+    Serial.println(" -- Commandes ligne --");
+    Serial.println("  player play|stop|pause|toggle|loop [0|1]|load <path>|info");
+    Serial.println("  seq    play|stop|pause|toggle|loop [0|1]|bpm <f>|steps <n>|ts <n> <d>|toggle_step <r> <s>|print");
+    Serial.println("  config (a venir — voir docs/USB_CONFIG.md)");
     Serial.println();
 }
 
@@ -159,34 +167,74 @@ static void showInfo() {
         g_seq.isLooping() ? "oui" : "non");
 }
 
-static void handleSerial() {
-    while (Serial.available()) {
-        char c = Serial.read();
-        switch (c) {
-            // --- Lecteur MIDI ---
-            case 'p': g_player.play();            break;
-            case 's': g_player.stop();            break;
-            case ' ': g_player.togglePlayPause(); break;
-            case 'l':
-                g_player.setLoop(!g_player.isLooping());
-                Serial.printf("[player] Boucle : %s\n", g_player.isLooping() ? "oui" : "non");
-                break;
-            case 'i': showInfo();      break;
-            case 'f': listMidiFiles(); break;
+static void handleKey(char c) {
+    switch (c) {
+        // --- Lecteur MIDI ---
+        case 'p': g_player.play();            break;
+        case 's': g_player.stop();            break;
+        case ' ': g_player.togglePlayPause(); break;
+        case 'l':
+            g_player.setLoop(!g_player.isLooping());
+            Serial.printf("[player] Boucle : %s\n", g_player.isLooping() ? "oui" : "non");
+            break;
+        case 'i': showInfo();      break;
+        case 'f': listMidiFiles(); break;
 
-            // --- Sequenceur XOX ---
-            case '1':
-            case '2':
-            case '3':
-            case 't':
-                sequencerCommandKey(g_seq, c);
-                break;
+        // --- Sequenceur XOX ---
+        case '1':
+        case '2':
+        case '3':
+        case 't':
+            sequencerCommandKey(g_seq, c);
+            break;
 
-            // --- General ---
-            case 'h':
-            case '?': showHelp(); break;
-        }
+        // --- General ---
+        case 'h':
+        case '?': showHelp(); break;
+
+        default:
+            Serial.printf("[nidmi-player] touche inconnue '%c' — 'h' pour l'aide\n", c);
+            break;
     }
+}
+
+// Dispatcher racine : "player ..." / "seq ..." / "config ...".
+// Une ligne d'un seul caractere = raccourci clavier (voir showHelp).
+static void handleLine(const char* lineIn) {
+    char line[SerialLineReader::kBufSize];
+    strlcpy(line, lineIn, sizeof(line));
+
+    if (line[0] != '\0' && line[1] == '\0') {
+        handleKey(line[0]);
+        return;
+    }
+
+    // Separer le premier mot (racine) du reste de la ligne.
+    char* rest = line;
+    while (*rest && *rest != ' ' && *rest != '\t') ++rest;
+    if (*rest) *rest++ = '\0';
+
+    // Racine sans argument : sonde "?" pour declencher l'usage du handler.
+    static char usageProbe[] = "?";
+    if (!*rest) rest = usageProbe;
+
+    if (strcmp(line, "player") == 0) {
+        playerCommandLine(g_player, g_currentFile, rest);
+        return;
+    }
+    if (strcmp(line, "seq") == 0) {
+        sequencerCommandLine(g_seq, rest);
+        return;
+    }
+    if (strcmp(line, "config") == 0) {
+        Serial.println("[config] pas encore implemente (etape 2 — voir docs/USB_CONFIG.md)");
+        return;
+    }
+    if (strcmp(line, "help") == 0) {
+        showHelp();
+        return;
+    }
+    Serial.printf("[nidmi-player] commande inconnue: '%s' — 'h' pour l'aide\n", line);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +294,9 @@ void setup() {
     // --- Sequenceur ---
     loadDemoPattern();
 
+    // --- Commandes serie (lignes terminees par Entree) ---
+    g_lineReader.setCallback(handleLine);
+
     showHelp();
 }
 
@@ -254,5 +305,5 @@ void loop() {
     g_osc.update();
     g_player.update();
     g_seq.update();
-    handleSerial();
+    g_lineReader.poll();
 }
