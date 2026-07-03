@@ -21,18 +21,12 @@
 
 #include "MidiFanOut.h"
 #include "MidiPlayer.h"
+#include "NetworkConfig.h"
+#include "app/JsonCommandApi.h"
 #include "app/PlayerCommandHandler.h"
 #include "app/SequencerCommandHandler.h"
 #include "app/SerialLineReader.h"
 #include "sequencer/EspSequencerAdapter.h"
-
-static constexpr const char* kApSsid   = "nidmi-player";
-static constexpr const char* kApPass   = "nidmipass";
-static constexpr const char* kMdnsHost = "nidmiplayer";
-static constexpr const char* kRtpName  = "nidmi-player";
-
-static constexpr uint16_t kOscLocalPort = 4000;
-static constexpr uint16_t kOscDestPort  = 9000;
 
 // Sortie MIDI filaire (DIN/TRS) : broche TX du XIAO ESP32-S3 (silkscreen "TX"/D6,
 // GPIO43). Cable a l'entree MIDI IN de l'equipement via le circuit standard
@@ -47,8 +41,9 @@ static MidiFanOut             g_midiOut(g_rtp, g_uartMidi);
 static MidiPlayer             g_player(g_midiOut);
 static EspSequencerAdapter    g_seq(g_midiOut);
 static SerialLineReader       g_lineReader;
-
-static String g_currentFile;
+static NetworkConfig          g_netConfig;
+static String                 g_currentFile;
+static JsonCommandApi         g_jsonApi(g_player, g_currentFile, g_netConfig);
 
 // ---------------------------------------------------------------------------
 // Pattern demo (4 rangees kick/snare/hihat/clap)
@@ -157,7 +152,10 @@ static void showHelp() {
     Serial.println(" -- Commandes ligne --");
     Serial.println("  player play|stop|pause|toggle|loop [0|1]|load <path>|info");
     Serial.println("  seq    play|stop|pause|toggle|loop [0|1]|bpm <f>|steps <n>|ts <n> <d>|toggle_step <r> <s>|print");
-    Serial.println("  config (a venir — voir docs/USB_CONFIG.md)");
+    Serial.println(" -- Protocole JSON (config / upload .mid) --");
+    Serial.println("  Toute ligne commencant par '{' est traitee comme du JSON.");
+    Serial.println("  Exemples: {\"cmd\":\"config.get\"}  {\"cmd\":\"player.info\"}");
+    Serial.println("  Voir docs/USB_CONFIG.md pour le schema complet.");
     Serial.println();
 }
 
@@ -212,9 +210,15 @@ static void handleKey(char c) {
     }
 }
 
-// Dispatcher racine : "player ..." / "seq ..." / "config ...".
+// Dispatcher racine : "player ..." / "seq ..." / "config ..." / JSON ("{...}").
 // Une ligne d'un seul caractere = raccourci clavier (voir showHelp).
 static void handleLine(const char* lineIn) {
+    if (lineIn[0] == '{') {
+        String resp = g_jsonApi.handle(lineIn);
+        if (resp.length()) Serial.println(resp);
+        return;
+    }
+
     char line[SerialLineReader::kBufSize];
     strlcpy(line, lineIn, sizeof(line));
 
@@ -241,7 +245,7 @@ static void handleLine(const char* lineIn) {
         return;
     }
     if (strcmp(line, "config") == 0) {
-        Serial.println("[config] pas encore implemente (etape 2 — voir docs/USB_CONFIG.md)");
+        Serial.println("[config] utiliser le protocole JSON, ex: {\"cmd\":\"config.get\"} — voir docs/USB_CONFIG.md");
         return;
     }
     if (strcmp(line, "help") == 0) {
@@ -261,16 +265,30 @@ void setup() {
     Serial.print("[nidmi-player] nidmi-core ");
     Serial.println(nidmi_core::version());
 
+    // --- LittleFS (monte en premier : /config.json doit etre lu avant le WiFi) ---
+    bool fsOk = LittleFS.begin(true);
+    if (!fsOk) {
+        Serial.println("[nidmi-player] LittleFS impossible (meme apres formatage)");
+    } else {
+        Serial.println("[nidmi-player] LittleFS OK");
+        if (g_netConfig.load()) {
+            Serial.println("[nidmi-player] /config.json charge");
+        } else {
+            Serial.println("[nidmi-player] /config.json absent — valeurs par defaut");
+        }
+    }
+
     // --- WiFi AP ---
-    if (!nidmi_core::netBeginSoftAp(kApSsid, kApPass, kMdnsHost)) {
+    if (!nidmi_core::netBeginSoftAp(g_netConfig.apSsid.c_str(), g_netConfig.apPass.c_str(), g_netConfig.mdnsHost.c_str())) {
         Serial.println("[nidmi-player] ERREUR: WiFi AP / mDNS");
         return;
     }
     Serial.print("[nidmi-player] AP IP: ");
     Serial.println(WiFi.softAPIP());
+    Serial.printf("[nidmi-player] AP SSID: %s\n", g_netConfig.apSsid.c_str());
 
     // --- RTP-MIDI ---
-    if (!g_rtp.begin(kRtpName)) {
+    if (!g_rtp.begin(g_netConfig.rtpSessionName.c_str())) {
         Serial.println("[nidmi-player] ERREUR: RTP-MIDI");
         return;
     }
@@ -291,22 +309,19 @@ void setup() {
     }
 
     // --- OSC UDP ---
-    if (!g_osc.begin(kOscLocalPort)) {
+    if (!g_osc.begin(g_netConfig.oscLocalPort)) {
         Serial.println("[nidmi-player] ERREUR: OSC UDP");
         return;
     }
     g_osc.setBroadcast(true);
     g_osc.setInterface(nidmi_core::OscNetInterface::AP);
-    g_osc.setTarget("192.168.4.255", kOscDestPort);
+    g_osc.setTarget(g_netConfig.oscDestIp.c_str(), g_netConfig.oscDestPort);
     g_router.setAddressPrefix("/nidmi");
     g_router.wire();
     Serial.println("[nidmi-player] OSC + routeur MIDI<->OSC OK");
 
-    // --- LittleFS ---
-    if (!LittleFS.begin(true)) {
-        Serial.println("[nidmi-player] LittleFS impossible (meme apres formatage)");
-    } else {
-        Serial.println("[nidmi-player] LittleFS OK");
+    // --- Fichiers MIDI (LittleFS deja monte plus haut) ---
+    if (fsOk) {
         listMidiFiles();
 
         String first = findFirstMidi();
@@ -315,7 +330,7 @@ void setup() {
                 g_currentFile = first;
             }
         } else {
-            Serial.println("[nidmi-player] Aucun .mid — copier dans data/ puis 'pio run -t uploadfs'");
+            Serial.println("[nidmi-player] Aucun .mid — copier dans data/ puis 'pio run -t uploadfs', ou 'file.begin' via JSON");
         }
     }
 

@@ -41,20 +41,26 @@ There is no test suite. Verification is done on-device via the serial monitor an
 
 Everything runs cooperatively in a single `loop()` (`src/main.cpp`) — no RTOS tasks, no blocking. Each subsystem exposes a non-blocking `update()` called every iteration and uses `esp_timer_get_time()` for scheduling.
 
-Two independent sources feed **one shared output**, `nidmi_core::RtpMidiService`:
+Two independent sources feed **one shared output**, `MidiFanOut` (`src/MidiFanOut.h`), which duplicates every event to both `nidmi_core::RtpMidiService` (WiFi) and `nidmi_core::EspUartMidiTransport` (wired MIDI DIN/TRS out, GPIO43 TX on the XIAO):
 
 - **`MidiPlayer`** (`src/MidiPlayer.*`) — file playback. `SmfParser` (`src/SmfParser.*`) parses a whole `.mid` (format 0 and 1) into an in-memory, tick-sorted `std::vector<MidiEvent>` with absolute times pre-computed in microseconds. `MidiPlayer::update()` walks that list against the clock and also emits MIDI Clock (24 ppqn) + Start/Stop/Continue. Format 1 tracks are merged; SMPTE division and SysEx are not supported; only the tempo meta event (0x51) is honored.
-- **`EspSequencerAdapter`** (`src/sequencer/`) — the ESP-side glue around `nidmi_seq::SequencerEngine`. It owns the engine + a `SequencerClockDriver`, translates transport calls into `SequencerCommand`s via `SequencerCommandApi::dispatch`, and drains the engine's event queue (`engine.events()`) into `rtp_.sendNoteOn/Off`. **The sequencer's logic lives in nidmi-sequencer-core, not here** — this repo only adapts it to hardware. Pattern editing goes through `g_seq.engine()` directly (see `loadDemoPattern()` in main.cpp).
+- **`EspSequencerAdapter`** (`src/sequencer/`) — the ESP-side glue around `nidmi_seq::SequencerEngine`. It owns the engine + a `SequencerClockDriver`, translates transport calls into `SequencerCommand`s via `SequencerCommandApi::dispatch`, and drains the engine's event queue (`engine.events()`) into `out_.sendNoteOn/Off` (the shared `MidiFanOut`). **The sequencer's logic lives in nidmi-sequencer-core, not here** — this repo only adapts it to hardware. Pattern editing goes through `g_seq.engine()` directly (see `loadDemoPattern()` in main.cpp).
 
-The player and sequencer can run alone or simultaneously; both write to the same RTP-MIDI stream. `MidiOscRouter` (prefix `/nidmi`) mirrors RTP-MIDI traffic to OSC and back over the AP interface.
+The player and sequencer can run alone or simultaneously; both write to the same fan-out. `MidiOscRouter` (prefix `/nidmi`) additionally mirrors RTP-MIDI traffic to OSC and back over the AP interface.
 
-### Serial command handling — note the split
+### Serial command handling
 
-`main.cpp`'s `handleSerial()` implements **single-key** commands inline (`p`/`s`/space/`l`/`i`/`f` for the player; `1`/`2`/`3`/`t` delegated to `sequencerCommandKey`). Separately, `src/app/` contains **line-based** command parsers — `SerialLineReader`, `playerCommandLine`, `sequencerCommandLine` — that are a more capable text-command interface but are **not currently wired into `main.cpp`'s loop**. If you add commands, decide which of the two paths you're extending rather than assuming the app/ handlers are live.
+`SerialLineReader` (`src/app/SerialLineReader.h`) is wired into `main.cpp`'s `loop()`; every line is dispatched by `handleLine()`. A single-character line is a keyboard shortcut (`handleKey()`: `p`/`s`/space/`l`/`i`/`f`, `1`/`2`/`3`/`t` for the sequencer). A line starting with `player`/`seq`/`help` goes through the matching text parser (`playerCommandLine`, `sequencerCommandLine`). **A line starting with `{` is JSON** and goes to `JsonCommandApi::handle()` (`src/app/JsonCommandApi.*`) — see below.
+
+### JSON command API (config, player control, MIDI file upload)
+
+`JsonCommandApi` is a transport-agnostic dispatcher: `handle(const char* requestLine) -> String`, newline-delimited JSON request/response. It doesn't know about the serial port — a future WiFi transport (WebSocket/HTTP) can call the exact same method. Commands: `config.get/set/reboot` (network settings — SSID/pass/mDNS/RTP name/OSC target — persisted to `NetworkConfig`/`/config.json` on LittleFS, applied on next `config.reboot`, not hot-reloaded), `player.play/stop/pause/toggle/loop/load/info` (thin wrapper over the existing `MidiPlayer`), `file.begin/chunk/end/abort/list/delete` (upload a `.mid` at runtime over base64-chunked JSON lines — previously the only way to add files was `pio run -t uploadfs`, which requires PlatformIO on the host and rewrites the whole filesystem). Full protocol and design rationale in `docs/USB_CONFIG.md` §7-8. Uses `bblanchon/ArduinoJson` (added to `platformio.ini`); base64 decoding uses `libb64/cdecode.h`, already bundled in the Arduino-ESP32 core (no extra dependency).
+
+`main.cpp`'s `setup()` mounts LittleFS and loads `/config.json` **before** starting WiFi/RTP-MIDI, so persisted network settings apply from boot.
 
 ## Ongoing studies
 
-`docs/USB_CONFIG.md` — feasibility study (not yet implemented) for a config/control server over USB-CDC on both S3 and C3, using the existing-but-unwired `src/app/` line-command handlers as its foundation. Read it before touching serial command handling or adding USB features.
+`docs/USB_CONFIG.md` — steps 1 (line protocol) and 2 (JSON config/player/file-upload API) are implemented and hardware-validated. Step 3 (a Web Serial page on the host) and an actual WiFi transport for the same `JsonCommandApi` are not built yet. Read it before touching serial command handling, `JsonCommandApi`, or adding a WiFi control surface.
 
 ## Note on the README
 
