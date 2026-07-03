@@ -60,7 +60,9 @@ The player and sequencer can run alone or simultaneously; both write to the same
 
 ## Ongoing studies
 
-`docs/USB_CONFIG.md` — steps 1 (line protocol) and 2 (JSON config/player/file-upload API) are implemented and hardware-validated. Step 3 (a Web Serial page on the host) and an actual WiFi transport for the same `JsonCommandApi` are not built yet. Read it before touching serial command handling, `JsonCommandApi`, or adding a WiFi control surface.
+`docs/USB_CONFIG.md` — steps 1 (line protocol), 2 (JSON config/player/file-upload API), and 3 (`tools/web-serial-console.html`, a host-side control page) are implemented. Steps 1-2 are hardware-validated; step 3 is validated via a mocked Playwright scenario (Web Serial needs a real user gesture + OS port picker, not automatable against real hardware in a sandbox). An actual WiFi transport reusing the same `JsonCommandApi` is not built yet. Read the doc before touching serial command handling, `JsonCommandApi`, or adding a WiFi control surface.
+
+`tools/web-serial-console.html` is a self-contained file (no CDN, no build step) meant to be opened directly in Chrome/Edge desktop — Web Serial doesn't work in an embedded/iframe context, so it's a real repo file, not a hosted preview.
 
 ## Note on the README
 

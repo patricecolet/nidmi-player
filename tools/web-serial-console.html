@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nidmi-player — console JSON/CDC</title>
+<style>
+  :root {
+    --bg:         #17151a;
+    --panel:      #211e26;
+    --panel-2:    #2a2530;
+    --border:     #3a3542;
+    --text:       #e8e3da;
+    --text-dim:   #8f8a97;
+    --accent:     #d99a4e;
+    --accent-dim: #6b4f2a;
+    --ok:         #7fb069;
+    --error:      #d16a6a;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  body {
+    padding: 16px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+
+  a { color: var(--accent); }
+
+  /* ---- Bandeau ---- */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .header-title {
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .header-title strong { color: var(--text); }
+
+  .led-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .led {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #4a4550;
+    box-shadow: none;
+    flex: none;
+  }
+  .led.on {
+    background: var(--ok);
+    box-shadow: 0 0 6px 1px var(--ok);
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  .led.err {
+    background: var(--error);
+    box-shadow: 0 0 6px 1px var(--error);
+    animation: none;
+  }
+  @keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .led.on { animation: none; }
+  }
+
+  /* ---- Modules (panneau rack) ---- */
+  .module {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin-bottom: 14px;
+  }
+  .module-label {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding: 7px 14px;
+    background: var(--panel-2);
+  }
+  .module-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  input[type=text], input[type=password], input[type=number], select {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 8px;
+    min-width: 0;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  button {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { border-color: var(--accent-dim); color: var(--accent); }
+  button.primary:hover:not(:disabled) { background: var(--accent-dim); }
+  button.danger:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+
+  .hint { color: var(--text-dim); font-size: 11px; }
+  .error-text { color: var(--error); font-size: 12px; }
+
+  /* ---- Journal ---- */
+  .log {
+    height: 180px;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .log-line { margin: 0 0 2px; }
+  .log-line .ts { color: var(--text-dim); }
+  .log-line.tx .dir { color: var(--accent); }
+  .log-line.rx .dir { color: var(--ok); }
+  .log-line.dev .dir { color: var(--text-dim); }
+  .log-line.errline .dir { color: var(--error); }
+
+  /* ---- Lecteur : VU meter ---- */
+  .vu {
+    display: flex;
+    gap: 2px;
+    height: 14px;
+  }
+  .vu-seg {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .vu-seg.lit { background: var(--accent); border-color: var(--accent); }
+
+  .transport-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px 16px;
+    font-size: 12px;
+  }
+  .info-grid dt { color: var(--text-dim); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .info-grid dd { margin: 2px 0 0; color: var(--text); }
+
+  /* ---- Fichiers ---- */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: normal; letter-spacing: 0.06em; text-transform: uppercase; font-size: 10px; }
+  td.actions { text-align: right; white-space: nowrap; }
+  td.actions button { margin-left: 6px; }
+
+  .progressbar {
+    height: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .progressbar-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.15s linear; }
+
+  .banner {
+    border: 1px solid var(--error);
+    color: var(--error);
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+  <div id="unsupported" class="banner" hidden>
+    Web Serial n'est pas disponible dans ce navigateur. Utiliser Chrome ou Edge (desktop), pas Safari ni Firefox.
+  </div>
+
+  <div class="header">
+    <div class="header-title"><strong>nidmi-player</strong> · console JSON / USB-CDC</div>
+    <div class="row">
+      <button id="btnConnect" class="primary">Connecter</button>
+      <button id="btnDisconnect" disabled>Déconnecter</button>
+      <div class="led-status">
+        <span id="led" class="led"></span>
+        <span id="ledText">déconnecté</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="module">
+    <div class="module-label">Journal (tx / rx)</div>
+    <div class="module-body">
+      <div id="log" class="log"></div>
+      <div class="row">
+        <button id="btnClearLog">Vider le journal</button>
+        <span class="hint">tx = envoyé, rx = réponse JSON, dev = ligne texte émise par le firmware (logs, aide...)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="module">
+    <div class="module-label">Lecteur MIDI</div>
+    <div class="module-body">
+      <div class="transport-buttons">
+        <button id="btnPlay" disabled>▶ Lire</button>
+        <button id="btnPause" disabled>❚❚ Pause</button>
+        <button id="btnStop" disabled>■ Stop</button>
+        <button id="btnToggle" disabled>⟳ Bascule</button>
+        <label class="row" style="gap:6px;">
+          <input type="checkbox" id="chkLoop" disabled> Boucle
+        </label>
+      </div>
+
+      <dl class="info-grid">
+        <div><dt>État</dt><dd id="infoState">—</dd></div>
+        <div><dt>BPM</dt><dd id="infoBpm">—</dd></div>
+        <div><dt>Fichier</dt><dd id="infoFile">—</dd></div>
+        <div><dt>Événements</dt><dd id="infoEvents">—</dd></div>
+        <div><dt>Durée</dt><dd id="infoDuration">—</dd></div>
+      </dl>
+
+      <div class="vu" id="vu"></div>
+
+      <div class="row">
+        <div class="field">
+          <label for="loadSelect">Charger un fichier .mid déjà présent</label>
+          <select id="loadSelect" disabled><option>—</option></select>
+        </div>
+        <button id="btnLoad" disabled style="align-self:flex-end;">Charger</button>
+        <label class="row" style="gap:6px; margin-left:auto;">
+          <input type="checkbox" id="chkAutoInfo" checked> Actualisation auto (1 s)
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="module">
+    <div class="module-label">Fichiers MIDI (LittleFS)</div>
+    <div class="module-body">
+      <div class="row">
+        <input type="file" id="fileInput" accept=".mid,.midi" disabled>
+        <button id="btnUpload" disabled>Envoyer</button>
+        <button id="btnRefreshFiles" disabled style="margin-left:auto;">Actualiser la liste</button>
+      </div>
+      <div id="uploadProgressWrap" hidden>
+        <div class="progressbar"><div id="uploadProgressFill" class="progressbar-fill"></div></div>
+        <span id="uploadProgressText" class="hint"></span>
+      </div>
+      <table>
+        <thead><tr><th>Chemin</th><th>Taille</th><th></th></tr></thead>
+        <tbody id="filesBody"><tr><td colspan="3" class="hint">Non connecté.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="module">
+    <div class="module-label">Réseau (config.json)</div>
+    <div class="module-body">
+      <div class="row">
+        <div class="field">
+          <label for="cfgSsid">SSID point d'accès</label>
+          <input type="text" id="cfgSsid" disabled>
+        </div>
+        <div class="field">
+          <label for="cfgPass">Mot de passe (vide = ne pas changer)</label>
+          <input type="password" id="cfgPass" disabled placeholder="********">
+        </div>
+        <div class="field">
+          <label for="cfgMdns">Nom mDNS</label>
+          <input type="text" id="cfgMdns" disabled>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="cfgRtp">Nom de session RTP-MIDI</label>
+          <input type="text" id="cfgRtp" disabled>
+        </div>
+        <div class="field">
+          <label for="cfgOscIp">Cible OSC (IP)</label>
+          <input type="text" id="cfgOscIp" disabled>
+        </div>
+        <div class="field">
+          <label for="cfgOscPort">Cible OSC (port)</label>
+          <input type="number" id="cfgOscPort" disabled>
+        </div>
+        <div class="field">
+          <label for="cfgOscLocal">Port OSC local</label>
+          <input type="number" id="cfgOscLocal" disabled>
+        </div>
+      </div>
+      <div class="row">
+        <button id="btnCfgGet" disabled>Lire la config actuelle</button>
+        <button id="btnCfgSet" class="primary" disabled>Enregistrer</button>
+        <button id="btnCfgReboot" class="danger" disabled>Enregistrer puis redémarrer</button>
+        <span class="hint">Les changements réseau ne s'appliquent qu'après redémarrage.</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+
+  const els = {
+    unsupported: $("unsupported"),
+    btnConnect: $("btnConnect"), btnDisconnect: $("btnDisconnect"),
+    led: $("led"), ledText: $("ledText"),
+    log: $("log"), btnClearLog: $("btnClearLog"),
+    btnPlay: $("btnPlay"), btnPause: $("btnPause"), btnStop: $("btnStop"), btnToggle: $("btnToggle"),
+    chkLoop: $("chkLoop"), chkAutoInfo: $("chkAutoInfo"),
+    infoState: $("infoState"), infoBpm: $("infoBpm"), infoFile: $("infoFile"),
+    infoEvents: $("infoEvents"), infoDuration: $("infoDuration"),
+    vu: $("vu"),
+    loadSelect: $("loadSelect"), btnLoad: $("btnLoad"),
+    fileInput: $("fileInput"), btnUpload: $("btnUpload"), btnRefreshFiles: $("btnRefreshFiles"),
+    uploadProgressWrap: $("uploadProgressWrap"), uploadProgressFill: $("uploadProgressFill"), uploadProgressText: $("uploadProgressText"),
+    filesBody: $("filesBody"),
+    cfgSsid: $("cfgSsid"), cfgPass: $("cfgPass"), cfgMdns: $("cfgMdns"), cfgRtp: $("cfgRtp"),
+    cfgOscIp: $("cfgOscIp"), cfgOscPort: $("cfgOscPort"), cfgOscLocal: $("cfgOscLocal"),
+    btnCfgGet: $("btnCfgGet"), btnCfgSet: $("btnCfgSet"), btnCfgReboot: $("btnCfgReboot"),
+  };
+
+  const VU_SEGMENTS = 24;
+  for (let i = 0; i < VU_SEGMENTS; i++) {
+    const seg = document.createElement("div");
+    seg.className = "vu-seg";
+    els.vu.appendChild(seg);
+  }
+  const vuSegs = [...els.vu.children];
+
+  // ------------------------------------------------------------ connexion
+  let port = null, writer = null, keepReading = false, readLoopPromise = null;
+  let nextId = 1;
+  const pending = new Map();
+
+  function setConnected(isConnected) {
+    els.btnConnect.disabled = isConnected;
+    els.btnDisconnect.disabled = !isConnected;
+    els.led.className = "led" + (isConnected ? " on" : "");
+    els.ledText.textContent = isConnected ? "connecté" : "déconnecté";
+    const controls = [
+      els.btnPlay, els.btnPause, els.btnStop, els.btnToggle, els.chkLoop,
+      els.loadSelect, els.btnLoad, els.fileInput, els.btnUpload, els.btnRefreshFiles,
+      els.cfgSsid, els.cfgPass, els.cfgMdns, els.cfgRtp, els.cfgOscIp, els.cfgOscPort, els.cfgOscLocal,
+      els.btnCfgGet, els.btnCfgSet, els.btnCfgReboot,
+    ];
+    controls.forEach((el) => { el.disabled = !isConnected; });
+  }
+
+  function logLine(kind, text) {
+    const ts = new Date().toLocaleTimeString("fr-FR", { hour12: false });
+    const div = document.createElement("div");
+    div.className = "log-line " + kind;
+    const dirLabel = { tx: "tx", rx: "rx", dev: "dev", errline: "err" }[kind] || kind;
+    div.innerHTML = `<span class="ts">${ts}</span> <span class="dir">${dirLabel}</span> `;
+    div.appendChild(document.createTextNode(text));
+    els.log.appendChild(div);
+    els.log.scrollTop = els.log.scrollHeight;
+  }
+
+  els.btnClearLog.addEventListener("click", () => { els.log.innerHTML = ""; });
+
+  async function connect() {
+    try {
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      writer = port.writable.getWriter();
+      keepReading = true;
+      readLoopPromise = readLoop();
+      setConnected(true);
+      logLine("dev", "port ouvert.");
+      await refreshFileList().catch(() => {});
+      await cfgGet().catch(() => {});
+      await refreshInfo().catch(() => {});
+    } catch (err) {
+      logLine("errline", "connexion échouée : " + err.message);
+    }
+  }
+
+  async function disconnect() {
+    keepReading = false;
+    try { if (writer) { writer.releaseLock(); writer = null; } } catch {}
+    try { if (port && port.readable) await port.readable.cancel(); } catch {}
+    try { await readLoopPromise; } catch {}
+    try { if (port) await port.close(); } catch {}
+    port = null;
+    setConnected(false);
+    logLine("dev", "port fermé.");
+    for (const { reject } of pending.values()) reject(new Error("port fermé"));
+    pending.clear();
+  }
+
+  els.btnConnect.addEventListener("click", connect);
+  els.btnDisconnect.addEventListener("click", disconnect);
+
+  async function readLoop() {
+    const decoder = new TextDecoderStream();
+    const readableClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
+    const reader = decoder.readable.getReader();
+    let buf = "";
+    try {
+      while (keepReading) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        let idx;
+        while ((idx = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, idx).replace(/\r$/, "");
+          buf = buf.slice(idx + 1);
+          if (line.length) handleLine(line);
+        }
+      }
+    } catch (err) {
+      if (keepReading) logLine("errline", "lecture interrompue : " + err.message);
+    } finally {
+      try { reader.releaseLock(); } catch {}
+      await readableClosed;
+    }
+  }
+
+  function handleLine(line) {
+    if (!line.startsWith("{")) {
+      logLine("dev", line);
+      return;
+    }
+    let obj;
+    try { obj = JSON.parse(line); } catch { logLine("dev", line); return; }
+    logLine("rx", line);
+    if (obj.id !== undefined && pending.has(obj.id)) {
+      const { resolve, reject } = pending.get(obj.id);
+      pending.delete(obj.id);
+      if (obj.ok) resolve(obj.data ?? {});
+      else reject(new Error(obj.error || "erreur inconnue"));
+    }
+  }
+
+  function sendCmd(cmd, data, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+      if (!writer) { reject(new Error("non connecté")); return; }
+      const id = nextId++;
+      const payload = { cmd, id };
+      if (data !== undefined) payload.data = data;
+      const line = JSON.stringify(payload);
+      const timer = setTimeout(() => {
+        if (pending.has(id)) { pending.delete(id); reject(new Error("délai dépassé")); }
+      }, timeoutMs);
+      pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      logLine("tx", line);
+      writer.write(new TextEncoder().encode(line + "\n")).catch((err) => {
+        clearTimeout(timer);
+        pending.delete(id);
+        reject(err);
+      });
+    });
+  }
+
+  // -------------------------------------------------------------- player
+  function updateVu(progress) {
+    const lit = Math.round((progress || 0) * VU_SEGMENTS);
+    vuSegs.forEach((seg, i) => seg.classList.toggle("lit", i < lit));
+  }
+
+  async function refreshInfo() {
+    const data = await sendCmd("player.info");
+    els.infoState.textContent = data.state ?? "—";
+    els.infoBpm.textContent = data.bpm != null ? data.bpm.toFixed(1) : "—";
+    els.infoFile.textContent = data.file || "—";
+    els.infoEvents.textContent = data.events ?? "—";
+    els.infoDuration.textContent = data.durationS != null ? data.durationS.toFixed(1) + " s" : "—";
+    els.chkLoop.checked = !!data.loop;
+    updateVu(data.progress || 0);
+  }
+
+  els.btnPlay.addEventListener("click", () => sendCmd("player.play").then(refreshInfo).catch(showErr));
+  els.btnPause.addEventListener("click", () => sendCmd("player.pause").then(refreshInfo).catch(showErr));
+  els.btnStop.addEventListener("click", () => sendCmd("player.stop").then(refreshInfo).catch(showErr));
+  els.btnToggle.addEventListener("click", () => sendCmd("player.toggle").then(refreshInfo).catch(showErr));
+  els.chkLoop.addEventListener("change", () =>
+    sendCmd("player.loop", { on: els.chkLoop.checked }).then(refreshInfo).catch(showErr));
+  els.btnLoad.addEventListener("click", () => {
+    const path = els.loadSelect.value;
+    if (!path || path === "—") return;
+    sendCmd("player.load", { path }).then(refreshInfo).catch(showErr);
+  });
+
+  let autoInfoTimer = null;
+  function startAutoInfo() {
+    stopAutoInfo();
+    autoInfoTimer = setInterval(() => {
+      if (port && els.chkAutoInfo.checked) refreshInfo().catch(() => {});
+    }, 1000);
+  }
+  function stopAutoInfo() { if (autoInfoTimer) clearInterval(autoInfoTimer); autoInfoTimer = null; }
+  startAutoInfo();
+
+  function showErr(err) { logLine("errline", err.message || String(err)); }
+
+  // --------------------------------------------------------------- files
+  async function refreshFileList() {
+    const data = await sendCmd("file.list");
+    const files = data.files || [];
+    els.filesBody.innerHTML = "";
+    els.loadSelect.innerHTML = "";
+    const optDefault = document.createElement("option");
+    optDefault.textContent = "—";
+    els.loadSelect.appendChild(optDefault);
+
+    if (!files.length) {
+      els.filesBody.innerHTML = '<tr><td colspan="3" class="hint">Aucun fichier .mid.</td></tr>';
+    }
+    for (const f of files) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${f.path}</td><td>${f.size} o</td>`;
+      const tdActions = document.createElement("td");
+      tdActions.className = "actions";
+      const btnDel = document.createElement("button");
+      btnDel.textContent = "Supprimer";
+      btnDel.className = "danger";
+      btnDel.addEventListener("click", () => {
+        sendCmd("file.delete", { path: f.path }).then(refreshFileList).catch(showErr);
+      });
+      tdActions.appendChild(btnDel);
+      tr.appendChild(tdActions);
+      els.filesBody.appendChild(tr);
+
+      const opt = document.createElement("option");
+      opt.value = f.path;
+      opt.textContent = f.path;
+      els.loadSelect.appendChild(opt);
+    }
+  }
+
+  els.btnRefreshFiles.addEventListener("click", () => refreshFileList().catch(showErr));
+
+  const CHUNK_BYTES = 512;
+
+  async function uploadFile(file) {
+    const path = "/" + file.name;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    els.uploadProgressWrap.hidden = false;
+    els.uploadProgressFill.style.width = "0%";
+    els.uploadProgressText.textContent = `envoi de ${path} (${buf.length} o)...`;
+
+    try {
+      await sendCmd("file.begin", { path, size: buf.length });
+      for (let offset = 0; offset < buf.length; offset += CHUNK_BYTES) {
+        const slice = buf.subarray(offset, Math.min(offset + CHUNK_BYTES, buf.length));
+        let bin = "";
+        for (let i = 0; i < slice.length; i++) bin += String.fromCharCode(slice[i]);
+        const b64 = btoa(bin);
+        await sendCmd("file.chunk", { offset, data: b64 });
+        const pct = Math.round(((offset + slice.length) / buf.length) * 100);
+        els.uploadProgressFill.style.width = pct + "%";
+        els.uploadProgressText.textContent = `envoi de ${path} — ${pct}%`;
+      }
+      await sendCmd("file.end");
+      els.uploadProgressText.textContent = `${path} envoyé.`;
+      await refreshFileList();
+    } catch (err) {
+      els.uploadProgressText.textContent = "échec : " + err.message;
+      await sendCmd("file.abort").catch(() => {});
+      showErr(err);
+    } finally {
+      setTimeout(() => { els.uploadProgressWrap.hidden = true; }, 3000);
+    }
+  }
+
+  els.btnUpload.addEventListener("click", () => {
+    const file = els.fileInput.files[0];
+    if (!file) { showErr(new Error("choisir un fichier .mid d'abord")); return; }
+    uploadFile(file);
+  });
+
+  // -------------------------------------------------------------- config
+  async function cfgGet() {
+    const data = await sendCmd("config.get");
+    els.cfgSsid.value = data.wifi?.apSsid || "";
+    els.cfgPass.value = "";
+    els.cfgMdns.value = data.wifi?.mdnsHost || "";
+    els.cfgRtp.value = data.rtp?.sessionName || "";
+    els.cfgOscIp.value = data.osc?.destIp || "";
+    els.cfgOscPort.value = data.osc?.destPort ?? "";
+    els.cfgOscLocal.value = data.osc?.localPort ?? "";
+  }
+
+  function buildCfgPayload() {
+    const wifi = {};
+    if (els.cfgSsid.value) wifi.apSsid = els.cfgSsid.value;
+    if (els.cfgPass.value) wifi.apPass = els.cfgPass.value;
+    if (els.cfgMdns.value) wifi.mdnsHost = els.cfgMdns.value;
+    const rtp = {};
+    if (els.cfgRtp.value) rtp.sessionName = els.cfgRtp.value;
+    const osc = {};
+    if (els.cfgOscIp.value) osc.destIp = els.cfgOscIp.value;
+    if (els.cfgOscPort.value) osc.destPort = Number(els.cfgOscPort.value);
+    if (els.cfgOscLocal.value) osc.localPort = Number(els.cfgOscLocal.value);
+    const payload = {};
+    if (Object.keys(wifi).length) payload.wifi = wifi;
+    if (Object.keys(rtp).length) payload.rtp = rtp;
+    if (Object.keys(osc).length) payload.osc = osc;
+    return payload;
+  }
+
+  els.btnCfgGet.addEventListener("click", () => cfgGet().catch(showErr));
+  els.btnCfgSet.addEventListener("click", () =>
+    sendCmd("config.set", buildCfgPayload())
+      .then(() => logLine("dev", "config enregistrée — redémarrer pour appliquer."))
+      .catch(showErr));
+  els.btnCfgReboot.addEventListener("click", async () => {
+    if (!confirm("Enregistrer la config et redémarrer le player maintenant ?\nLa connexion série sera coupée.")) return;
+    try {
+      await sendCmd("config.set", buildCfgPayload());
+      await sendCmd("config.reboot", undefined, 2000).catch(() => {});
+    } catch (err) {
+      showErr(err);
+    }
+    disconnect();
+  });
+
+  // --------------------------------------------------------------- init
+  if (!("serial" in navigator)) {
+    els.unsupported.hidden = false;
+    els.btnConnect.disabled = true;
+  }
+})();
+</script>
+</body>
+</html>

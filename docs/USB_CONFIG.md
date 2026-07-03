@@ -1,8 +1,8 @@
 # Serveur de config via USB (en complement du routing MIDI)
 
-> Statut : **etapes 1 et 2 implementees et validees sur XIAO ESP32-S3**
-> (2026-07-03). Etape 3 (page Web Serial) et le transport WiFi restent a faire —
-> voir §7.
+> Statut : **etapes 1, 2 et 3 implementees**, 1 et 2 validees sur XIAO ESP32-S3,
+> 3 validee en scenario simule (2026-07-03). Le transport WiFi (reutilisant
+> `JsonCommandApi`) reste a faire — voir §9.
 
 ## 1. Besoin
 
@@ -81,8 +81,13 @@ La graine du serveur de config **existe deja mais n'est pas branchee** :
 2. ✅ **API config JSON** (`JsonCommandApi`, `src/app/JsonCommandApi.h/.cpp`) +
    persistance (`NetworkConfig`, `/config.json` LittleFS) — voir §7 pour le
    schema complet et §8 pour les decisions de conception.
-3. Page **Web Serial** cote hote qui parle cette API — meme API reutilisee par un
-   futur web WiFi (non fait ; testable pour l'instant via scripts Python, cf. §7).
+3. ✅ Page **Web Serial** cote hote (`tools/web-serial-console.html`) — meme
+   API reutilisee par un futur transport WiFi. Fichier HTML autonome (pas de
+   CDN, pas de build) : s'ouvre directement dans Chrome/Edge desktop (Web
+   Serial indisponible dans un iframe/preview, d'ou un vrai fichier plutot
+   qu'une page hebergee). Connexion, journal tx/rx, config get/set/reboot,
+   transport lecteur + VU-metre de progression, upload/liste/suppression de
+   fichiers `.mid`.
 4. (Bonus S3, plus tard) evaluer NCM + httpd pour un vrai `http://` par cable.
 
 ### Ce qui concerne `nidmi-core` (vs player)
@@ -207,7 +212,24 @@ non-regression des commandes texte (`h`, raccourcis clavier).
 
 - Le transport WiFi reel (HTTP/WebSocket) — `JsonCommandApi` est concu pour
   etre reutilise tel quel, mais aucun serveur n'est construit.
-- Page Web Serial cote hote — testable avec des scripts Python (`dsrdtr=True`,
-  voir memoire de session sur les pieges serie du XIAO), une vraie page HTML
-  est un suivi naturel.
 - Reconfiguration WiFi a chaud sans reboot.
+
+## 10. Note sur le test de `tools/web-serial-console.html`
+
+Web Serial exige un vrai geste utilisateur + une invite systeme de choix de
+port : impossible a automatiser de bout en bout avec du materiel reel dans un
+environnement sandbox. Verification faite en deux temps :
+- **Logique protocole** : testee directement cote firmware (scripts Python,
+  §7) — c'est la meme grammaire JSON que la page envoie.
+- **Logique page** : scenario Playwright headless qui substitue
+  `navigator.serial` par un faux port (Object.defineProperty, la simple
+  assignation `navigator.serial = ...` est silencieusement ignoree par
+  Chromium) rejouant les reponses exactement telles qu'observees sur le
+  XIAO. Verifie : connexion, `config.get` peuple les champs, `file.list`
+  peuple le tableau, `player.play` fait passer l'etat a `PLAYING`, le
+  VU-metre affiche la bonne proportion de segments, et surtout l'upload
+  envoie `file.begin`/`file.chunk` avec le schema `data.{path,size,offset,data}`
+  imbrique — le meme que celui valide sur le vrai firmware. Aucune erreur JS
+  dans les deux scenarios.
+- **Reste a verifier a la main** (pas testable en sandbox) : l'invite de choix
+  de port Web Serial elle-meme, et un vrai transfert USB de bout en bout.
