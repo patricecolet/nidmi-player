@@ -6,7 +6,7 @@
 
 static inline int64_t nowUs() { return esp_timer_get_time(); }
 
-MidiPlayer::MidiPlayer(nidmi_core::RtpMidiService& rtp) : rtp_(rtp) {}
+MidiPlayer::MidiPlayer(MidiFanOut& out) : out_(out) {}
 
 // ---------------------------------------------------------------------------
 // Chargement
@@ -66,7 +66,7 @@ void MidiPlayer::play() {
         playStartUs_ = nowUs();
         lastClockUs_ = playStartUs_;
         state_       = State::PLAYING;
-        rtp_.sendContinue();
+        out_.sendContinue();
         Serial.println("[player] Continue");
         return;
     }
@@ -76,14 +76,14 @@ void MidiPlayer::play() {
     lastClockUs_ = playStartUs_;
     state_       = State::PLAYING;
 
-    rtp_.sendStart();
+    out_.sendStart();
     Serial.printf("[player] Play (%.1f BPM)\n", bpm());
 }
 
 void MidiPlayer::stop() {
     if (state_ == State::STOPPED) return;
     sendAllNotesOff();
-    rtp_.sendStop();
+    out_.sendStop();
     state_ = State::STOPPED;
     resetToStart();
     Serial.println("[player] Stop");
@@ -132,15 +132,15 @@ void MidiPlayer::update() {
         if (loop_) {
             Serial.println("[player] Boucle");
             sendAllNotesOff();
-            rtp_.sendStop();
+            out_.sendStop();
             resetToStart();
             playStartUs_ = nowUs();
             lastClockUs_ = playStartUs_;
-            rtp_.sendStart();
+            out_.sendStart();
         } else {
             Serial.println("[player] Fin du morceau");
             sendAllNotesOff();
-            rtp_.sendStop();
+            out_.sendStop();
             state_ = State::STOPPED;
             resetToStart();
         }
@@ -186,37 +186,37 @@ void MidiPlayer::dispatchEvent(const MidiEvent& evt) {
     switch (evt.status) {
         case 0x90:
             if (evt.data2 > 0)
-                rtp_.sendNoteOn(ch, evt.data1, evt.data2);
+                out_.sendNoteOn(ch, evt.data1, evt.data2);
             else
-                rtp_.sendNoteOff(ch, evt.data1, 0);
+                out_.sendNoteOff(ch, evt.data1, 0);
             break;
         case 0x80:
-            rtp_.sendNoteOff(ch, evt.data1, evt.data2);
+            out_.sendNoteOff(ch, evt.data1, evt.data2);
             break;
         case 0xB0:
-            rtp_.sendControlChange(ch, evt.data1, evt.data2);
+            out_.sendControlChange(ch, evt.data1, evt.data2);
             break;
         case 0xC0:
-            rtp_.sendProgramChange(ch, evt.data1);
+            out_.sendProgramChange(ch, evt.data1);
             break;
         case 0xD0:
-            rtp_.sendAftertouch(ch, evt.data1);
+            out_.sendAftertouch(ch, evt.data1);
             break;
         case 0xE0: {
             int bend = (static_cast<int>(evt.data2) << 7 | evt.data1) - 8192;
-            rtp_.sendPitchBend(ch, bend);
+            out_.sendPitchBend(ch, bend);
             break;
         }
         case 0xA0:
-            rtp_.sendKeyPressure(ch, evt.data1, evt.data2);
+            out_.sendKeyPressure(ch, evt.data1, evt.data2);
             break;
     }
 }
 
 void MidiPlayer::sendAllNotesOff() {
     for (uint8_t ch = 1; ch <= 16; ++ch) {
-        rtp_.sendControlChange(ch, 123, 0);  // All Notes Off
-        rtp_.sendControlChange(ch, 121, 0);  // Reset All Controllers
+        out_.sendControlChange(ch, 123, 0);  // All Notes Off
+        out_.sendControlChange(ch, 121, 0);  // Reset All Controllers
     }
 }
 
@@ -226,7 +226,7 @@ void MidiPlayer::updateClock() {
     const int64_t now      = nowUs();
 
     while (now - lastClockUs_ >= interval) {
-        rtp_.sendClock();
+        out_.sendClock();
         lastClockUs_ += interval;
     }
 }

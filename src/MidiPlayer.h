@@ -1,11 +1,11 @@
 #pragma once
 
+#include "MidiFanOut.h"
 #include "SmfParser.h"
-#include <nidmi_core/RtpMidiService.h>
 
 /**
  * Lecteur MIDI non-bloquant : charge un fichier SMF (.mid),
- * dispatche les evenements en temps reel via RtpMidiService,
+ * dispatche les evenements en temps reel via MidiFanOut (RTP-MIDI + UART),
  * emet le MIDI Clock (24 ppqn) et les messages de transport.
  *
  * Appeler update() dans loop().
@@ -14,7 +14,7 @@ class MidiPlayer {
 public:
     enum class State : uint8_t { STOPPED, PLAYING, PAUSED };
 
-    explicit MidiPlayer(nidmi_core::RtpMidiService& rtp);
+    explicit MidiPlayer(MidiFanOut& out);
 
     bool load(const uint8_t* data, size_t length);
     bool loadFile(const char* path);
@@ -39,8 +39,8 @@ public:
     int64_t     durationUs()  const { return score_.totalTimeUs; }
 
 private:
-    nidmi_core::RtpMidiService& rtp_;
-    SmfParser::Result      score_;
+    MidiFanOut&        out_;
+    SmfParser::Result  score_;
 
     State  state_  = State::STOPPED;
     bool   loaded_ = false;

@@ -3,13 +3,13 @@
 #include <nidmi_seq/SequencerEngine.h>
 #include <nidmi_seq/SequencerCommandApi.h>
 #include <nidmi_seq/SequencerClockDriver.h>
-#include <nidmi_core/RtpMidiService.h>
+#include "../MidiFanOut.h"
 #include <esp_timer.h>
 
 class EspSequencerAdapter {
 public:
-    explicit EspSequencerAdapter(nidmi_core::RtpMidiService& rtp)
-        : rtp_(rtp) {}
+    explicit EspSequencerAdapter(MidiFanOut& out)
+        : out_(out) {}
 
     // --- Transport ---
     void play() {
@@ -81,7 +81,7 @@ public:
 private:
     SequencerEngine        engine_;
     SequencerClockDriver   clock_;
-    nidmi_core::RtpMidiService& rtp_;
+    MidiFanOut&            out_;
 
     void dispatchEvents() {
         const auto& q = engine_.events();
@@ -89,10 +89,10 @@ private:
             const auto& e = q.buf[i];
             switch (e.type) {
                 case SeqEventType::NoteOn:
-                    rtp_.sendNoteOn(e.channel, e.data1, e.data2);
+                    out_.sendNoteOn(e.channel, e.data1, e.data2);
                     break;
                 case SeqEventType::NoteOff:
-                    rtp_.sendNoteOff(e.channel, e.data1, e.data2);
+                    out_.sendNoteOff(e.channel, e.data1, e.data2);
                     break;
                 default:
                     break;

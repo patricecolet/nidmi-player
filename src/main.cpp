@@ -9,14 +9,17 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <LittleFS.h>
+#include <nidmi_core/EspUartMidiTransport.h>
 #include <nidmi_core/MidiOscRouter.h>
 #include <nidmi_core/NetBootstrap.h>
 #include <nidmi_core/OscUdpService.h>
 #include <nidmi_core/RtpMidiService.h>
+#include <nidmi_core/UartMidiTransport.h>
 #include <nidmi_core/Version.h>
 
 #include <cstring>
 
+#include "MidiFanOut.h"
 #include "MidiPlayer.h"
 #include "app/PlayerCommandHandler.h"
 #include "app/SequencerCommandHandler.h"
@@ -31,12 +34,19 @@ static constexpr const char* kRtpName  = "nidmi-player";
 static constexpr uint16_t kOscLocalPort = 4000;
 static constexpr uint16_t kOscDestPort  = 9000;
 
-static nidmi_core::RtpMidiService g_rtp;
-static nidmi_core::OscUdpService  g_osc;
-static nidmi_core::MidiOscRouter  g_router(g_rtp, g_osc);
-static MidiPlayer            g_player(g_rtp);
-static EspSequencerAdapter   g_seq(g_rtp);
-static SerialLineReader      g_lineReader;
+// Sortie MIDI filaire (DIN/TRS) : broche TX du XIAO ESP32-S3 (silkscreen "TX"/D6,
+// GPIO43). Cable a l'entree MIDI IN de l'equipement via le circuit standard
+// (resistance/optocoupleur cote reception) — voir nidmi-core/docs/UART_MIDI.md.
+static constexpr uint8_t kUartMidiTxPin = 43;
+
+static nidmi_core::RtpMidiService      g_rtp;
+static nidmi_core::OscUdpService       g_osc;
+static nidmi_core::MidiOscRouter       g_router(g_rtp, g_osc);
+static nidmi_core::EspUartMidiTransport g_uartMidi;
+static MidiFanOut             g_midiOut(g_rtp, g_uartMidi);
+static MidiPlayer             g_player(g_midiOut);
+static EspSequencerAdapter    g_seq(g_midiOut);
+static SerialLineReader       g_lineReader;
 
 static String g_currentFile;
 
@@ -165,6 +175,10 @@ static void showInfo() {
         g_seq.stateName(), g_seq.bpm(),
         g_seq.currentStep(), g_seq.engine().pattern().numSteps,
         g_seq.isLooping() ? "oui" : "non");
+    Serial.printf("[midi]   RTP: %s | UART(TX=GPIO%u): %s\n",
+        g_rtp.isReady() ? "ok" : "off",
+        kUartMidiTxPin,
+        g_uartMidi.isReady() ? "ok" : "off");
 }
 
 static void handleKey(char c) {
@@ -262,6 +276,20 @@ void setup() {
     }
     Serial.printf("[nidmi-player] RTP-MIDI pret (port %u)\n", g_rtp.port());
 
+    // --- UART MIDI (DIN/TRS filaire, TX-only) ---
+    {
+        nidmi_core::UartMidiConfig uartCfg;
+        uartCfg.enable   = true;
+        uartCfg.uartIndex = 1;   // Serial1 (UART materiel dedie, independant de la console USB)
+        uartCfg.txPin    = kUartMidiTxPin;
+        uartCfg.rxPin    = -1;   // TX seul (voir docs/UART_MIDI.md : tester TX avant RX)
+        if (g_uartMidi.begin(uartCfg)) {
+            Serial.printf("[nidmi-player] UART MIDI pret (TX=GPIO%u)\n", kUartMidiTxPin);
+        } else {
+            Serial.println("[nidmi-player] ERREUR: UART MIDI (non bloquant, on continue)");
+        }
+    }
+
     // --- OSC UDP ---
     if (!g_osc.begin(kOscLocalPort)) {
         Serial.println("[nidmi-player] ERREUR: OSC UDP");
@@ -302,6 +330,7 @@ void setup() {
 
 void loop() {
     g_rtp.update();
+    g_uartMidi.update();
     g_osc.update();
     g_player.update();
     g_seq.update();
